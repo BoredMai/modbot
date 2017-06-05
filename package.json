@@ -1,0 +1,29 @@
+{
+  "name": "modbot",
+  "version": "1.0.0",
+  "description": "A modbot for Wayfarer's Pub",
+  "main": "modbot.js",
+  "scripts": {
+    "test": "nodemon modbot.js"
+  },
+  "keywords": [
+    "rpg",
+    "dnd",
+    "4e",
+    "5e",
+    "wayfarerspub",
+    "wayfarers"
+  ],
+  "author": "Maianne Ribeiro",
+  "license": "ISC",
+  "dependencies": {
+    "discord.js": "^11.1.0",
+    "google-spreadsheet": "^2.0.4"
+  },
+  "devDependencies": {
+    "del": "^2.2.2",
+    "gulp": "^3.9.1",
+    "gulp-concat": "^2.6.1",
+    "gulp-nodemon": "^2.2.1"
+  }
+}
