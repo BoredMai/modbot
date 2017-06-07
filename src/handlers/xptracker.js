@@ -12,8 +12,12 @@ var XPTracker;
     function setup(credentials) {
         return new Promise((resolve, reject) => {
             fMap.set('new', newChar);
+            fMap.set('del', delChar);
             fMap.set('get', get);
             fMap.set('add', add);
+            fMap.set('madd', madd);
+            fMap.set('sub', subtract);
+            fMap.set('subtract', subtract);
             fMap.set('pending', showPending);
             fMap.set('confirm', confirm);
             fMap.set('cancel', cancel);
@@ -81,6 +85,33 @@ var XPTracker;
         });
     }
 
+    function delChar(message, command) {
+        if (command.length < 1) {
+            message.channel.send('Please inform a character name.');
+            return;
+        }
+
+        charSheet.getRows({
+            offset: 1,
+            query: 'patronname = ' + command[0]
+        }, function( err, rows ) {
+            if (err) {
+                message.channel.send('Error executing command - check bot logs');
+                throwError(message, err);
+            } else {
+                if (rows.length > 0) {
+                    var p = {};
+                    p.row = rows[0];
+                    p.exec = 'del';
+                    pending.push(p);
+                    message.channel.send('Exclusion of character ' + p.row['patronname'] + ' was added to pending list. Type "!modxp confirm" to save, or "!modxp cancel" to discard changes.');
+                } else {
+                    message.channel.send('There is no existing character with this name. Please select a different name.');
+                }
+            }
+        });
+    }
+
     function get(message, command) {
         charSheet.getRows({
             offset: 1
@@ -118,6 +149,11 @@ var XPTracker;
             }
         }
 
+        if (isNaN(command[1])) {
+            message.channel.send(command[1] + ' is not a valid XP amount.');
+            return;
+        }
+
         charSheet.getRows({
             offset: 1,
             query: 'patronname = ' + command[0]
@@ -126,37 +162,12 @@ var XPTracker;
                 message.channel.send('Error executing command - check bot logs');
                 throwError(message, err);
             } else {
-                if ((command.length > 1) && (isNaN(command[1]))) {
-                    message.channel.send(command[1] + ' is not a valid XP amount.');
-                    return;
-                }
-
                 var msg = '';
                 if (rows.length > 0) {
-                    var match = rows[0];
                     msg += 'Updating character\n';
-
-                    var p = { prev: { currentlevel: match['currentlevel'], currentxp: match['currentxp']}, row: match, exec: 'save' };
-                    
-                    msg += match['patronname'] + ' | Level ' + match['currentlevel'] + ' | XP: ' + match['currentxp'] + ' -> ';
-
-                    match['currentxp'] = parseInt(match['currentxp']) + parseInt(command[1]);
-                    while ((parseInt(match['currentlevel']) < 20) && (parseInt(match['currentxp']) >= XPToLevel[match['currentlevel']])) {
-                        var newxp = match['currentxp'] - XPToLevel[match['currentlevel']];
-                        match['currentlevel'] = parseInt(match['currentlevel']) + 1;
-                        if (parseInt(match['currentlevel']) === 20) {
-                            match['currentxp'] = 'N/A';
-                            match['xptilnextlvl'] = 'N/A';
-                        } else {
-                            match['currentxp'] = newxp;
-                            match['xptilnextlvl'] = XPToLevel[match['currentlevel']] - match['currentxp'];
-                        }
-                        msg += '[LEVEL UP!] ';
-                    }
-                    msg += 'Level ' + match['currentlevel'] + ' | XP: ' + match['currentxp'];
-
-                    pending.push(p);
-                    msg += '\nChange added to pending list. Type "!modxp confirm" to save, or "!modxp cancel" to discard changes.'
+                    var match = rows[0];
+                    msg += handleXP(match, parseInt(command[1]));
+                    msg += 'Change added to pending list. Type "!modxp confirm" to save, or "!modxp cancel" to discard changes.';
                 } else {
                     msg += 'No matches found for ' + command[0] + '. Run "!modxp new <charactername> <level>" to add a new character.';
                 }
@@ -164,14 +175,152 @@ var XPTracker;
             }
         });
     }
+
+    function madd(message, command) {
+        if (isNaN(command[command.length - 1])) {
+            message.channel.send(command[command.length - 1] + ' is not a valid XP amount.');
+            return;
+        }
+        
+        var charList = message.content.match(/\[.*\]/g)[0].toLowerCase().match(/\w+|"[^"]+"/g);
+        var reject = [];
+        
+        for (var p of pending) {
+            if ((charList.indexOf(p.row['patronname'].toLowerCase()) !== -1) ||
+                (charList.indexOf('"' + p.row['patronname'].toLowerCase() + '"') !== -1)) {
+                reject.push(p.row['patronname']);
+            }
+        }
+        if (reject.length > 0) {
+            var msg = 'There are pending changes on the following characters. Please execute or discard them before making new changes:\n';
+            msg += reject.join('\n');
+            message.channel.send(msg);
+            return;
+        } else {
+            charSheet.getRows({
+                offset: 1,
+                query: 'patronname = ' + charList.join(' or patronname = ')
+            }, function( err, rows ) {
+                if (err) {
+                    message.channel.send('Error executing command - check bot logs');
+                    throwError(message, err);
+                } else {
+                    var msg = '';
+                    if (rows.length > 0) {
+                        msg += 'Updating character(s)\n';
+                        var amount = parseInt(command[command.length - 1]);
+                        for (var r of rows) {
+                            msg += handleXP(r, amount);
+                            var index = charList.indexOf(r['patronname'].toLowerCase()) !== -1 ?
+                                        charList.indexOf(r['patronname'].toLowerCase()) :
+                                        charList.indexOf('"' + r['patronname'].toLowerCase() + '"');
+                            if (index !== -1) charList.splice(index, 1);
+                        }
+                        msg += 'Changes added to pending list. Type "!modxp confirm" to save, or "!modxp cancel" to discard changes.'
+                        if (charList.length > 0) {
+                            msg += '\nNo matches found for the following characters:\n';
+                            msg += charList.join('\n');
+                            msg += 'Run "!modxp new <charactername> <level>" to add a new character.';
+                        }
+                    } else {
+                        msg += 'No matches found for the following characters:\n';
+                        msg += charList.join('\n');
+                        msg += 'Run "!modxp new <charactername> <level>" to add a new character.';
+                    }
+                    message.channel.send(msg);
+                }
+            });
+        }
+    }
+
+    function subtract(message, command) {
+        for (var p of pending) {
+            if (p.row['patronname'].toLowerCase() === command[0].replace(/"/g, '').toLowerCase()) {
+                message.channel.send('There are pending changes on the character named ' + command[0] + '. Please execute or discard them before making new changes.');
+                return;
+            }
+        }
+
+        if (isNaN(command[1])) {
+            message.channel.send(command[1] + ' is not a valid XP amount.');
+            return;
+        }
+
+        charSheet.getRows({
+            offset: 1,
+            query: 'patronname = ' + command[0]
+        }, function( err, rows ) {
+            if (err) {
+                message.channel.send('Error executing command - check bot logs');
+                throwError(message, err);
+            } else {
+                var msg = '';
+                if (rows.length > 0) {
+                    msg += 'Updating character\n';
+                    var match = rows[0];
+                    var amount = -parseInt(command[1]);
+                    msg += handleXP(match, amount);
+                    msg += 'Change added to pending list. Type "!modxp confirm" to save, or "!modxp cancel" to discard changes.';
+                } else {
+                    msg += 'No matches found for ' + command[0] + '. Run "!modxp new <charactername> <level>" to add a new character.';
+                }
+                message.channel.send(msg);
+            }
+        });
+    }
+
+    function handleXP(char, amount) {
+        var msg = '';
+        var p = { prev: { currentlevel: char['currentlevel'], currentxp: char['currentxp']}, row: char, exec: 'save' };
+                    
+        msg += char['patronname'] + ' | Level ' + char['currentlevel'] + ' | XP: ' + char['currentxp'] + ' -> ';
+
+        char['currentxp'] = parseInt(char['currentxp']) + amount;
+        if (amount > 0) {
+            while ((parseInt(char['currentlevel']) < 20) && (parseInt(char['currentxp']) >= XPToLevel[char['currentlevel']])) {
+                var newxp = char['currentxp'] - XPToLevel[char['currentlevel']];
+                char['currentlevel'] = parseInt(char['currentlevel']) + 1;
+                // if (parseInt(char['currentlevel']) === 20) {
+                //     char['currentxp'] = 'N/A';
+                //     char['xptilnextlvl'] = 'N/A';
+                // } else {
+                //     char['currentxp'] = newxp;
+                //     char['xptilnextlvl'] = XPToLevel[char['currentlevel']] - char['currentxp'];
+                // }
+                if (parseInt(char['currentlevel']) === 20) char['currentxp'] = 'N/A';
+                else char['currentxp'] = newxp;
+                msg += '[LEVEL UP!] ';
+            }
+        } else {
+            while (parseInt(char['currentxp']) < 0) {
+                char['currentlevel'] = parseInt(char['currentlevel']) - 1;
+                if (parseInt(char['currentlevel']) === 0) {
+                    char['currentlevel'] = 1;
+                    char['currentxp'] = 0;
+                } else {
+                    char['currentxp'] = XPToLevel[char['currentlevel']] + parseInt(char['currentxp']);
+                }
+                msg += '[LEVEL DOWN¡] ';
+            }
+        }
+        msg += 'Level ' + char['currentlevel'] + ' | XP: ' + char['currentxp'] + '\n';
+
+        pending.push(p);
+        return msg;
+    }
     
     function showPending(message, command) {
         if (pending.length > 0) {
             var msg = '';
             msg += 'Updating character(s)';
             for (var p of pending) {
-                msg += '\n' + p.row['patronname'] + ' | Level ' + p.prev['currentlevel'] + ' | XP: ' + p.prev['currentxp'] + ' -> ';
-                msg += 'Level ' + p.row['currentlevel'] + ' | XP: ' + p.row['currentxp'];
+                if (p.exec === 'save') {
+                    msg += '\n' + p.row['patronname'] + ' | Level ' + p.prev['currentlevel'] + ' | XP: ' + p.prev['currentxp'] + ' -> ';
+                    msg += 'Level ' + p.row['currentlevel'] + ' | XP: ' + p.row['currentxp'];
+                } else if (p.exec === 'del') {
+                    msg += '\n' + p.row['patronname'] + ' | Level ' + p.row['currentlevel'] + ' | XP: ' + p.row['currentxp'] + ' -> ';
+                    msg += '[DELETED]';
+                }
             }
             message.channel.send(msg);
         } else {
@@ -259,8 +408,11 @@ var XPTracker;
         message.channel.send(
             '**[IMPORTANT]** Use double quotes(") when using a character name with spaces!\n\n' +
             '**!modxp new <charactername> <level>** - Create a new character. If <level> isn\'t informed, character is created at level 12.\n' +
+            '**!modxp del <charactername>** - Adds exclusion of a character to the pending list. Character name *must be a match*.\n' +
             '**!modxp get <charactername>** - Searches for a character in the database.\n' +
-            '**!modxp add <charactername> <xp>** - Adds XP to a specific character and adds the change to a pending list. Character name *must be a match*.\n' +
+            '**!modxp add <charactername> <xp>** - Adds XP to a specific character and adds the change to the pending list. Character name *must be a match*.\n' +
+            '**!modxp madd [<charactername>, <charactername>(...)] <xp>** - Adds XP to a list of characters and adds the change to the pending list. Character names *must be matches*.\n' +
+            '**!modxp sub|subtract <charactername> <xp>** - Subtracts XP from a specific character and adds the change to the pending list. Character name *must be a match*.\n' +
             '**!modxp pending** - Lists all pending changes.\n' +
             '**!modxp confirm** - Executes all pending changes.\n' +
             '**!modxp cancel** - Discards last pending change.\n' +

@@ -28,6 +28,7 @@ modbot.on('message', message => {
       message.channel.send('ModBot does not accept direct messages.');
       return;
     }
+    if (!loaded) showHelp(message);
     if (message.content.toLowerCase().indexOf('!modbot') === 0) showHelp(message);
     if (message.content.toLowerCase().indexOf('!modxp') === 0) XPTracker.handle(message);
   }
