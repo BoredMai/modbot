@@ -8,6 +8,7 @@ var XPTracker;
 
     XPTracker.setup = setup;
     XPTracker.handle = handle;
+    XPTracker.loaded = false;
 
     function setup(credentials) {
         return new Promise((resolve, reject) => {
@@ -30,6 +31,7 @@ var XPTracker;
                     doc.getInfo(function(err, info) {
                         if (!err) {
                             charSheet = info.worksheets[0];
+                            XPTracker.loaded = true;
                             resolve();
                         } else {
                             reject(err);
@@ -41,7 +43,7 @@ var XPTracker;
     }
 
     function handle(message) {
-        var command = message.content.match(/\w+|"[^"]+"/g).slice(1);
+        var command = message.content.match(/\w+|"[^"]+"|\[.*\]/g).slice(1);
         var f = fMap.get(command[0].toLowerCase());
         if (f)
             f(message, command.slice(1));
@@ -182,7 +184,7 @@ var XPTracker;
             return;
         }
         
-        var charList = message.content.match(/\[.*\]/g)[0].toLowerCase().match(/\w+|"[^"]+"/g);
+        var charList = command[0].toLowerCase().match(/\w+|"[^"]+"/g);
         var reject = [];
         
         for (var p of pending) {
@@ -220,12 +222,12 @@ var XPTracker;
                         if (charList.length > 0) {
                             msg += '\nNo matches found for the following characters:\n';
                             msg += charList.join('\n');
-                            msg += 'Run "!modxp new <charactername> <level>" to add a new character.';
+                            msg += '\nRun "!modxp new <charactername> <level>" to add a new character.';
                         }
                     } else {
                         msg += 'No matches found for the following characters:\n';
                         msg += charList.join('\n');
-                        msg += 'Run "!modxp new <charactername> <level>" to add a new character.';
+                        msg += '\nRun "!modxp new <charactername> <level>" to add a new character.';
                     }
                     message.channel.send(msg);
                 }
